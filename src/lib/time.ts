@@ -1,6 +1,7 @@
 export const DAY_MIN = 1440;
+export const MIN_MS = 60_000;
 export const DAY_MS = 86_400_000;
-export const ALERT_LEAD_MS = 15 * 60_000;
+export const ALERT_LEAD_MS = 15 * MIN_MS;
 
 export const mod = (n: number, m: number) => ((n % m) + m) % m;
 
@@ -35,19 +36,41 @@ export const fmtGmt = (offsetMin: number) => {
 };
 
 /** Minutes after local midnight for an instant, in the given GMT offset. */
-export const nowLocalMinutes = (nowMs: number, offsetMin: number) => {
-  const utcMin = (nowMs % DAY_MS) / 60_000;
-  return mod(utcMin + offsetMin, DAY_MIN);
-};
+export const localMinutesOf = (ms: number, offsetMin: number) =>
+  mod((ms + offsetMin * MIN_MS) / MIN_MS, DAY_MIN);
 
 export const fmtClock = (nowMs: number, offsetMin: number) => {
-  const shifted = new Date(nowMs + offsetMin * 60_000);
+  const shifted = new Date(nowMs + offsetMin * MIN_MS);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(shifted.getUTCHours())}:${p(shifted.getUTCMinutes())}:${p(shifted.getUTCSeconds())}`;
 };
 
-export const fmtDate = (nowMs: number, offsetMin: number) =>
-  new Date(nowMs + offsetMin * 60_000).toLocaleDateString("en-GB", {
+/* ---------- Calendar dates ("YYYY-MM-DD" keys in a chosen GMT offset) ---------- */
+
+export const dateKeyFor = (ms: number, offsetMin: number) =>
+  new Date(ms + offsetMin * MIN_MS).toISOString().slice(0, 10);
+
+const parseDateKey = (key: string) => {
+  const [y, m, d] = key.split("-").map(Number);
+  return { y, m, d };
+};
+
+/** UTC instant at which the given calendar date starts in the GMT offset. */
+export const dayStartMs = (key: string, offsetMin: number) => {
+  const { y, m, d } = parseDateKey(key);
+  return Date.UTC(y, m - 1, d) - offsetMin * MIN_MS;
+};
+
+export const addDaysKey = (key: string, days: number) => {
+  const { y, m, d } = parseDateKey(key);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+
+export const isValidDateKey = (key: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(key) && !Number.isNaN(Date.parse(`${key}T00:00:00Z`));
+
+export const fmtDateKey = (key: string) =>
+  new Date(`${key}T00:00:00Z`).toLocaleDateString("en-GB", {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -55,12 +78,13 @@ export const fmtDate = (nowMs: number, offsetMin: number) =>
     timeZone: "UTC",
   });
 
-/** Next instant (>= now) at which a UTC-minute-of-day occurs. */
-export const nextOccurrenceMs = (nowMs: number, utcMinutes: number) => {
-  const dayStart = Math.floor(nowMs / DAY_MS) * DAY_MS;
-  const today = dayStart + utcMinutes * 60_000;
-  return today >= nowMs ? today : today + DAY_MS;
-};
+export const fmtDateKeyShort = (key: string) =>
+  new Date(`${key}T00:00:00Z`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  });
 
 export const fmtCountdown = (ms: number) => {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -70,6 +94,8 @@ export const fmtCountdown = (ms: number) => {
   if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
   return `${m}m ${String(s).padStart(2, "0")}s`;
 };
+
+/* ---------- Dial geometry ---------- */
 
 /** Point on a circle; 0 minutes is at the top, increasing clockwise. */
 export const polar = (cx: number, cy: number, r: number, minutes: number) => {

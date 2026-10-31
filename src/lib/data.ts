@@ -1,38 +1,17 @@
-import type { NewsEvent, Session } from "./types";
+import type { Session } from "./types";
 
 const h = (hh: number, mm = 0) => hh * 60 + mm;
 
 /**
  * Standard UTC session hours (daylight-saving shifts are not applied).
  * Sydney 22:00–07:00, Tokyo 00:00–09:00, London 08:00–17:00, New York 13:00–22:00.
+ * `currencies` maps a holiday in that currency to the session it closes.
  */
 export const SESSIONS: Session[] = [
-  { id: "sydney", name: "Sydney", startUtc: h(22), endUtc: h(7), color: "#7c9cbf" },
-  { id: "tokyo", name: "Tokyo", startUtc: h(0), endUtc: h(9), color: "#b58fbf" },
-  { id: "london", name: "London", startUtc: h(8), endUtc: h(17), color: "#6fb59a" },
-  { id: "newyork", name: "New York", startUtc: h(13), endUtc: h(22), color: "#d0a35f" },
-];
-
-/**
- * Sample daily feed. These are illustrative recurring-style entries, NOT a live
- * economic calendar. Replace with a real provider later (see README).
- */
-export const SAMPLE_EVENTS: NewsEvent[] = [
-  { id: "s-aud-emp", title: "Employment Change", region: "AUD", impact: "medium", utcMinutes: h(0, 30) },
-  { id: "s-rba", title: "RBA Policy Statement", region: "AUD", impact: "high", utcMinutes: h(3, 30) },
-  { id: "s-boj", title: "BoJ Press Conference", region: "JPY", impact: "medium", utcMinutes: h(6, 30) },
-  { id: "s-uk-gdp", title: "GDP m/m", region: "GBP", impact: "medium", utcMinutes: h(6, 0) },
-  { id: "s-ifo", title: "Ifo Business Climate", region: "EUR", impact: "medium", utcMinutes: h(8, 0) },
-  { id: "s-boe", title: "BoE Rate Decision", region: "GBP", impact: "high", utcMinutes: h(11, 0) },
-  { id: "s-ecb", title: "ECB Rate Decision", region: "EUR", impact: "high", utcMinutes: h(12, 15) },
-  { id: "s-nfp", title: "Non-Farm Payrolls", region: "USD", impact: "high", utcMinutes: h(12, 30) },
-  { id: "s-cpi", title: "CPI m/m", region: "USD", impact: "high", utcMinutes: h(12, 30) },
-  { id: "s-claims", title: "Unemployment Claims", region: "USD", impact: "medium", utcMinutes: h(12, 30) },
-  { id: "s-ism", title: "ISM Manufacturing PMI", region: "USD", impact: "medium", utcMinutes: h(14, 0) },
-  { id: "s-oil", title: "Crude Oil Inventories", region: "USD", impact: "medium", utcMinutes: h(14, 30) },
-  { id: "s-fed-speak", title: "Fed Chair Speaks", region: "USD", impact: "high", utcMinutes: h(15, 0) },
-  { id: "s-fomc", title: "FOMC Statement", region: "USD", impact: "high", utcMinutes: h(18, 0) },
-  { id: "s-nz", title: "Business Confidence", region: "NZD", impact: "low", utcMinutes: h(21, 0) },
+  { id: "sydney", name: "Sydney", startUtc: h(22), endUtc: h(7), color: "#4f86c6", currencies: ["AUD", "NZD"] },
+  { id: "tokyo", name: "Tokyo", startUtc: h(0), endUtc: h(9), color: "#a559b8", currencies: ["JPY", "CNY"] },
+  { id: "london", name: "London", startUtc: h(8), endUtc: h(17), color: "#2fa37a", currencies: ["GBP", "EUR", "CHF"] },
+  { id: "newyork", name: "New York", startUtc: h(13), endUtc: h(22), color: "#d98e2b", currencies: ["USD", "CAD"] },
 ];
 
 export interface TimezoneOption {

@@ -1,22 +1,31 @@
 export type Impact = "high" | "medium" | "low";
+export type EventImpact = Impact | "holiday";
 
 export interface NewsEvent {
   id: string;
   title: string;
-  region: string;
-  impact: Impact;
-  /** Minutes after 00:00 UTC on the event's day (0–1439). */
-  utcMinutes: number;
+  /** Currency code (USD, EUR…) or "ALL" for items that apply to every market. */
+  country: string;
+  impact: EventImpact;
+  /** Absolute instant of the event (UTC milliseconds). */
+  atMs: number;
+  /** All-day items (holidays) have no meaningful time of day. */
+  allDay: boolean;
+  /** Calendar date (YYYY-MM-DD) of an all-day item, as published by the feed. */
+  dateKey?: string;
+  forecast?: string;
+  previous?: string;
   custom?: boolean;
 }
 
 export interface TimePoint {
   id: string;
   label: string;
+  /** Recurs daily: minutes after 00:00 UTC. */
   utcMinutes: number;
 }
 
-export interface TimeInterval {
+export interface TimeRange {
   id: string;
   label: string;
   startUtc: number;
@@ -30,11 +39,8 @@ export interface Session {
   startUtc: number;
   endUtc: number;
   color: string;
+  /** Currencies whose bank holidays close this session. */
+  currencies: string[];
 }
 
-export interface AlertItem {
-  key: string;
-  eventId: string;
-  title: string;
-  atMs: number;
-}
+export type Theme = "system" | "light" | "dark";

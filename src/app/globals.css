@@ -1,11 +1,49 @@
 @import "tailwindcss";
 
+/* Light theme (default for light-mode systems) */
 :root {
+  --bg: #fafaf8;
+  --fg: #14171b;
+  --muted: #646c76;
+  --line: #dcdfe3;
+  --accent: #1c78a6;
+  --danger: #c4372f;
+  --ok: #1f8a63;
+  --impact-high: #d6453d;
+  --impact-medium: #d99a1f;
+  --impact-low: #6f8aa6;
+  color-scheme: light;
+}
+
+/* Dark theme: explicit choice, or system preference when no explicit choice is set */
+:root[data-theme="dark"] {
   --bg: #0b0d10;
   --fg: #e8eaed;
-  --muted: #7d848d;
+  --muted: #8a919a;
   --line: #22272e;
   --accent: #5fb3d9;
+  --danger: #ef7a72;
+  --ok: #5fbf9a;
+  --impact-high: #ef7a72;
+  --impact-medium: #e6b45a;
+  --impact-low: #8fa3b8;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #0b0d10;
+    --fg: #e8eaed;
+    --muted: #8a919a;
+    --line: #22272e;
+    --accent: #5fb3d9;
+    --danger: #ef7a72;
+    --ok: #5fbf9a;
+    --impact-high: #ef7a72;
+    --impact-medium: #e6b45a;
+    --impact-low: #8fa3b8;
+    color-scheme: dark;
+  }
 }
 
 @theme inline {
@@ -15,19 +53,30 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html {
-  color-scheme: dark;
-}
-
 body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
 }
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Keep tap targets comfortable on touch screens */
+@media (pointer: coarse) {
+  button,
+  select,
+  input[type="date"] {
+    min-height: 40px;
+  }
 }
