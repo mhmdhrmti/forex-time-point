@@ -1,47 +1,61 @@
 @import "tailwindcss";
 
-/* Light theme (default for light-mode systems) */
+/*
+  Colour system. Neutrals carry the layout; ONE accent (blue) means "selected / live";
+  red means "closed"; the four session hues are used only for sessions.
+*/
 :root {
-  --bg: #fafaf8;
-  --fg: #14171b;
-  --muted: #646c76;
-  --line: #dcdfe3;
-  --accent: #1c78a6;
-  --danger: #c4372f;
-  --ok: #1f8a63;
-  --impact-high: #d6453d;
-  --impact-medium: #d99a1f;
-  --impact-low: #6f8aa6;
+  --bg: #f3f4f7;
+  --surface: #ffffff;
+  --fg: #0f141b;
+  --muted: #5d6877;
+  --line: #e1e4ea;
+  --accent: #2f6df0;
+  --danger: #d6453f;
+  --ok: #1e9b69;
+  --face: #ffffff;
+  --face-closed: #fbecec;
+  --lane-track: rgba(15, 20, 27, 0.05);
+  --impact-high: #d6453f;
+  --impact-medium: #d9921c;
+  --impact-low: #8693a4;
   color-scheme: light;
 }
 
-/* Dark theme: explicit choice, or system preference when no explicit choice is set */
 :root[data-theme="dark"] {
-  --bg: #0b0d10;
-  --fg: #e8eaed;
-  --muted: #8a919a;
-  --line: #22272e;
-  --accent: #5fb3d9;
-  --danger: #ef7a72;
-  --ok: #5fbf9a;
-  --impact-high: #ef7a72;
-  --impact-medium: #e6b45a;
-  --impact-low: #8fa3b8;
+  --bg: #0b0e13;
+  --surface: #121720;
+  --fg: #e8ebf1;
+  --muted: #8d98a8;
+  --line: #222a36;
+  --accent: #5a9bff;
+  --danger: #ff6f69;
+  --ok: #3fce8f;
+  --face: #0f141c;
+  --face-closed: #1d1417;
+  --lane-track: rgba(255, 255, 255, 0.05);
+  --impact-high: #ff6f69;
+  --impact-medium: #eab04a;
+  --impact-low: #8793a5;
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #0b0d10;
-    --fg: #e8eaed;
-    --muted: #8a919a;
-    --line: #22272e;
-    --accent: #5fb3d9;
-    --danger: #ef7a72;
-    --ok: #5fbf9a;
-    --impact-high: #ef7a72;
-    --impact-medium: #e6b45a;
-    --impact-low: #8fa3b8;
+    --bg: #0b0e13;
+    --surface: #121720;
+    --fg: #e8ebf1;
+    --muted: #8d98a8;
+    --line: #222a36;
+    --accent: #5a9bff;
+    --danger: #ff6f69;
+    --ok: #3fce8f;
+    --face: #0f141c;
+    --face-closed: #1d1417;
+    --lane-track: rgba(255, 255, 255, 0.05);
+    --impact-high: #ff6f69;
+    --impact-medium: #eab04a;
+    --impact-low: #8793a5;
     color-scheme: dark;
   }
 }
@@ -72,11 +86,16 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Keep tap targets comfortable on touch screens */
 @media (pointer: coarse) {
   button,
   select,
   input[type="date"] {
     min-height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ftp-face {
+    transition: fill 0.4s ease;
   }
 }

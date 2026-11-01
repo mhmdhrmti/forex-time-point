@@ -19,7 +19,7 @@ export default function ThemeToggle({
     <div
       role="group"
       aria-label="Colour theme"
-      className="flex overflow-hidden rounded border border-[var(--line)] text-xs"
+      className="flex overflow-hidden rounded-md text-xs ring-1 ring-[var(--line)]"
     >
       {OPTIONS.map((o) => (
         <button

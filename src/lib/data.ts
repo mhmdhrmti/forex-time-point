@@ -8,10 +8,10 @@ const h = (hh: number, mm = 0) => hh * 60 + mm;
  * `currencies` maps a holiday in that currency to the session it closes.
  */
 export const SESSIONS: Session[] = [
-  { id: "sydney", name: "Sydney", startUtc: h(22), endUtc: h(7), color: "#4f86c6", currencies: ["AUD", "NZD"] },
-  { id: "tokyo", name: "Tokyo", startUtc: h(0), endUtc: h(9), color: "#a559b8", currencies: ["JPY", "CNY"] },
-  { id: "london", name: "London", startUtc: h(8), endUtc: h(17), color: "#2fa37a", currencies: ["GBP", "EUR", "CHF"] },
-  { id: "newyork", name: "New York", startUtc: h(13), endUtc: h(22), color: "#d98e2b", currencies: ["USD", "CAD"] },
+  { id: "sydney", name: "Sydney", startUtc: h(22), endUtc: h(7), color: "#8f7cf0", currencies: ["AUD", "NZD"] },
+  { id: "tokyo", name: "Tokyo", startUtc: h(0), endUtc: h(9), color: "#e0679f", currencies: ["JPY", "CNY"] },
+  { id: "london", name: "London", startUtc: h(8), endUtc: h(17), color: "#2fb58f", currencies: ["GBP", "EUR", "CHF"] },
+  { id: "newyork", name: "New York", startUtc: h(13), endUtc: h(22), color: "#eaa03a", currencies: ["USD", "CAD"] },
 ];
 
 export interface TimezoneOption {

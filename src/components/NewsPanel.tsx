@@ -7,6 +7,7 @@ import {
   fmtCountdown,
   fmtDateKey,
   fmtDateKeyShort,
+  fmtGmt,
   fmtHM,
   localMinutesOf,
   parseHM,
@@ -25,19 +26,21 @@ interface Props {
   isToday: boolean;
   /** Events (feed + custom) on the viewed date. */
   dayEvents: NewsEvent[];
-  /** Upcoming pinned events on any date. */
-  upcomingPinned: NewsEvent[];
-  pinnedIds: string[];
+  /** Selected events that have not happened yet, on any date. */
+  upcomingSelected: NewsEvent[];
+  selectedIds: string[];
   offset: number;
   nowMs: number | null;
   feed: FeedState;
-  /** Set when the viewed date lies outside the Forex Factory feed's range. */
-  outOfRangeNote: string | null;
+  leadMin: number;
   impactFilter: ImpactFilter;
   currencyFilter: string;
+  hoverId: string | null;
+  onHover: (id: string | null) => void;
+  onLeadChange: (m: number) => void;
   onImpactFilter: (f: ImpactFilter) => void;
   onCurrencyFilter: (c: string) => void;
-  onTogglePin: (id: string) => void;
+  onToggleSelect: (e: NewsEvent) => void;
   onAddCustom: (e: Omit<NewsEvent, "id" | "custom">) => void;
   onRemoveCustom: (id: string) => void;
   onRetry: () => void;
@@ -50,23 +53,26 @@ const IMPACT_DOT: Record<Impact, string> = {
 };
 
 const field =
-  "rounded border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)]";
+  "rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)]";
 
 export default function NewsPanel({
   dateKey,
   isToday,
   dayEvents,
-  upcomingPinned,
-  pinnedIds,
+  upcomingSelected,
+  selectedIds,
   offset,
   nowMs,
   feed,
-  outOfRangeNote,
+  leadMin,
   impactFilter,
   currencyFilter,
+  hoverId,
+  onHover,
+  onLeadChange,
   onImpactFilter,
   onCurrencyFilter,
-  onTogglePin,
+  onToggleSelect,
   onAddCustom,
   onRemoveCustom,
   onRetry,
@@ -86,10 +92,11 @@ export default function NewsPanel({
       dayEvents.filter(
         (e) =>
           e.impact === "holiday" ||
+          selectedIds.includes(e.id) ||
           ((impactFilter === "all" || e.impact === impactFilter) &&
             (currencyFilter === "all" || e.country === currencyFilter)),
       ),
-    [dayEvents, impactFilter, currencyFilter],
+    [dayEvents, impactFilter, currencyFilter, selectedIds],
   );
 
   const submit = (ev: React.FormEvent) => {
@@ -113,13 +120,15 @@ export default function NewsPanel({
     <section aria-label="Daily news and events" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-sm font-medium tracking-wide">
+          <h2 className="text-base font-semibold tracking-tight">
             {fmtDateKey(dateKey)}
-            {isToday && <span className="ml-2 text-xs font-normal text-[var(--accent)]">Today</span>}
+            {isToday && (
+              <span className="ml-2 rounded-full bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--accent)]">
+                Today
+              </span>
+            )}
           </h2>
-          <p className="text-xs text-[var(--muted)]">
-            Forex Factory calendar · times in your selected zone
-          </p>
+          <p className="text-xs text-[var(--muted)]">Forex Factory · times in {fmtGmt(offset)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <div className="flex gap-1" role="group" aria-label="Filter by impact">
@@ -129,10 +138,10 @@ export default function NewsPanel({
                 type="button"
                 onClick={() => onImpactFilter(f)}
                 aria-pressed={impactFilter === f}
-                className={`rounded px-2 py-1 text-xs capitalize transition-colors ${
+                className={`rounded-md px-2 py-1 text-xs capitalize transition-colors ${
                   impactFilter === f
                     ? "bg-[var(--fg)] text-[var(--bg)]"
-                    : "border border-[var(--line)] text-[var(--muted)] hover:text-[var(--fg)]"
+                    : "text-[var(--muted)] ring-1 ring-[var(--line)] hover:text-[var(--fg)]"
                 }`}
               >
                 {f}
@@ -143,7 +152,7 @@ export default function NewsPanel({
             value={currencyFilter}
             onChange={(e) => onCurrencyFilter(e.target.value)}
             aria-label="Filter by currency"
-            className="rounded border border-[var(--line)] bg-[var(--bg)] px-2 py-1 text-xs"
+            className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-xs"
           >
             <option value="all">All currencies</option>
             {currencies.map((c) => (
@@ -159,14 +168,14 @@ export default function NewsPanel({
       </div>
 
       {feed.status === "loading" && (
-        <p className="rounded border border-[var(--line)] px-3 py-2 text-xs text-[var(--muted)]">
-          Loading the Forex Factory calendar…
+        <p className="rounded-lg bg-[var(--surface)] px-3 py-2.5 text-xs text-[var(--muted)] ring-1 ring-[var(--line)]">
+          Loading events for {fmtDateKeyShort(dateKey)} from Forex Factory…
         </p>
       )}
       {feed.status === "error" && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-[var(--danger)] px-3 py-2 text-xs">
-          <span className="text-[var(--danger)]">{feed.message}</span>
-          <button type="button" onClick={onRetry} className="rounded border border-[var(--line)] px-2 py-1 hover:border-[var(--fg)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border-l-4 border-[var(--danger)] bg-[var(--surface)] px-3 py-2.5 text-xs ring-1 ring-[var(--line)]">
+          <span className="min-w-0 flex-1 text-[var(--danger)]">{feed.message}</span>
+          <button type="button" onClick={onRetry} className="rounded-md px-2.5 py-1 ring-1 ring-[var(--line)] hover:ring-[var(--fg)]">
             Retry
           </button>
         </div>
@@ -176,37 +185,59 @@ export default function NewsPanel({
           Showing the last saved copy; Forex Factory could not be reached just now.
         </p>
       )}
-      {outOfRangeNote && (
-        <p className="rounded border border-[var(--line)] px-3 py-2 text-xs text-[var(--muted)]">
-          {outOfRangeNote}
-        </p>
-      )}
 
-      {upcomingPinned.length > 0 && (
-        <div className="rounded border border-[var(--line)] p-3">
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-            Pinned · alerts 15 min before
+      {/* Selected events and their alerts */}
+      <div className="rounded-xl bg-[var(--surface)] p-3.5 ring-1 ring-[var(--line)]">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+            Selected events
           </h3>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+            Alert me
+            <select
+              value={leadMin}
+              onChange={(e) => onLeadChange(Number(e.target.value))}
+              aria-label="Alert lead time in minutes"
+              className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-1.5 py-1 text-xs text-[var(--fg)]"
+            >
+              {[2, 5, 10, 15, 30].map((m) => (
+                <option key={m} value={m}>
+                  {m} min
+                </option>
+              ))}
+            </select>
+            before
+          </label>
+        </div>
+        {upcomingSelected.length === 0 ? (
+          <p className="text-xs text-[var(--muted)]">
+            Press <span className="font-medium text-[var(--fg)]">Select</span> on an event below to show it on the
+            clock and get an alert.
+          </p>
+        ) : (
           <ul className="flex flex-col gap-1.5">
-            {upcomingPinned.map((e) => (
-              <li key={e.id} className="flex items-center gap-2 text-xs">
-                <span className="w-[88px] shrink-0 font-mono text-[var(--muted)]">
+            {upcomingSelected.map((e) => (
+              <li
+                key={e.id}
+                onMouseEnter={() => onHover(e.id)}
+                onMouseLeave={() => onHover(null)}
+                className="flex items-center gap-2 text-xs"
+              >
+                <span className="w-[84px] shrink-0 font-mono text-[var(--muted)]">
                   {fmtDateKeyShort(dateKeyFor(e.atMs, offset))}
                 </span>
-                <span className="w-11 shrink-0 font-mono">{fmtHM(localMinutesOf(e.atMs, offset))}</span>
+                <span className="w-11 shrink-0 font-mono font-medium">{fmtHM(localMinutesOf(e.atMs, offset))}</span>
                 <span className="min-w-0 flex-1 truncate">
                   {e.country && <span className="mr-1.5 font-mono text-[var(--muted)]">{e.country}</span>}
                   {e.title}
                 </span>
                 {nowMs !== null && (
-                  <span className="shrink-0 font-mono text-[var(--accent)]">
-                    {fmtCountdown(e.atMs - nowMs)}
-                  </span>
+                  <span className="shrink-0 font-mono text-[var(--accent)]">{fmtCountdown(e.atMs - nowMs)}</span>
                 )}
                 <button
                   type="button"
-                  onClick={() => onTogglePin(e.id)}
-                  aria-label={`Unpin ${e.title}`}
+                  onClick={() => onToggleSelect(e)}
+                  aria-label={`Unselect ${e.title}`}
                   className="shrink-0 text-[var(--muted)] hover:text-[var(--danger)]"
                 >
                   ✕
@@ -214,25 +245,38 @@ export default function NewsPanel({
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
 
-      <ul className="flex flex-col divide-y divide-[var(--line)] border-y border-[var(--line)] lg:max-h-[440px] lg:overflow-y-auto">
-        {rows.length === 0 && feed.status !== "loading" && (
-          <li className="py-6 text-center text-xs text-[var(--muted)]">
+      <ul className="flex flex-col overflow-hidden rounded-xl bg-[var(--surface)] ring-1 ring-[var(--line)] lg:max-h-[460px] lg:overflow-y-auto">
+        {rows.length === 0 && feed.status !== "loading" && feed.status !== "error" && (
+          <li className="px-4 py-8 text-center text-xs text-[var(--muted)]">
             No events for this date{impactFilter !== "all" || currencyFilter !== "all" ? " with these filters" : ""}.
           </li>
         )}
-        {rows.map((e) => {
-          const isPinned = pinnedIds.includes(e.id);
+        {rows.map((e, i) => {
+          const isSelected = selectedIds.includes(e.id);
           const holiday = e.impact === "holiday";
           const day = e.allDay && e.dateKey ? e.dateKey : dateKeyFor(e.atMs, offset);
           const countdown =
-            isPinned && nowMs !== null && e.atMs > nowMs ? fmtCountdown(e.atMs - nowMs) : null;
+            isSelected && nowMs !== null && e.atMs > nowMs ? fmtCountdown(e.atMs - nowMs) : null;
           return (
-            <li key={e.id} className="flex items-start gap-3 py-2.5">
+            <li
+              key={e.id}
+              onMouseEnter={() => onHover(e.id)}
+              onMouseLeave={() => onHover(null)}
+              className={`flex items-start gap-3 border-l-[3px] px-3.5 py-2.5 transition-colors ${
+                i > 0 ? "border-t border-t-[var(--line)]" : ""
+              } ${
+                isSelected
+                  ? "border-l-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_9%,transparent)]"
+                  : hoverId === e.id
+                    ? "border-l-transparent bg-[color-mix(in_srgb,var(--fg)_4%,transparent)]"
+                    : "border-l-transparent"
+              }`}
+            >
               <span className="w-12 shrink-0 pt-0.5 font-mono text-sm">
-                {holiday ? "All day" : fmtHM(localMinutesOf(e.atMs, offset))}
+                {e.allDay ? "All day" : fmtHM(localMinutesOf(e.atMs, offset))}
               </span>
               {holiday ? (
                 <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[var(--danger)]" title="Holiday" />
@@ -245,9 +289,9 @@ export default function NewsPanel({
               <div className="min-w-0 flex-1">
                 <p className="text-sm">
                   {e.country && <span className="mr-2 font-mono text-xs text-[var(--muted)]">{e.country}</span>}
-                  {e.title}
+                  <span className={isSelected ? "font-medium" : ""}>{e.title}</span>
                   {holiday && (
-                    <span className="ml-2 rounded bg-[color-mix(in_srgb,var(--danger)_16%,transparent)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--danger)]">
+                    <span className="ml-2 rounded bg-[color-mix(in_srgb,var(--danger)_14%,transparent)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--danger)]">
                       {e.country === "ALL" ? "Market closed" : "Holiday"}
                     </span>
                   )}
@@ -269,18 +313,18 @@ export default function NewsPanel({
                   ✕
                 </button>
               )}
-              {!holiday && (
+              {!holiday && !e.allDay && (
                 <button
                   type="button"
-                  onClick={() => onTogglePin(e.id)}
-                  aria-pressed={isPinned}
-                  className={`shrink-0 rounded border px-2.5 py-1 text-xs transition-colors ${
-                    isPinned
-                      ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--bg)]"
-                      : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--fg)] hover:text-[var(--fg)]"
+                  onClick={() => onToggleSelect(e)}
+                  aria-pressed={isSelected}
+                  className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    isSelected
+                      ? "bg-[var(--accent)] text-white"
+                      : "text-[var(--muted)] ring-1 ring-[var(--line)] hover:text-[var(--fg)] hover:ring-[var(--fg)]"
                   }`}
                 >
-                  {isPinned ? "On clock" : "Add"}
+                  {isSelected ? "Selected" : "Select"}
                 </button>
               )}
             </li>
@@ -289,7 +333,7 @@ export default function NewsPanel({
       </ul>
 
       <form onSubmit={submit} className="flex flex-col gap-2">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
           Add your own event on {fmtDateKeyShort(dateKey)}
         </h3>
         <div className="flex flex-wrap gap-2">
@@ -311,13 +355,13 @@ export default function NewsPanel({
             value={impact}
             onChange={(e) => setImpact(e.target.value as Impact)}
             aria-label="Impact"
-            className={`${field} bg-[var(--bg)]`}
+            className={`${field} bg-[var(--surface)]`}
           >
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
-          <button type="submit" className="rounded bg-[var(--fg)] px-3 py-1.5 text-sm text-[var(--bg)]">
+          <button type="submit" className="rounded-md bg-[var(--fg)] px-3 py-1.5 text-sm font-medium text-[var(--bg)]">
             Add
           </button>
         </div>

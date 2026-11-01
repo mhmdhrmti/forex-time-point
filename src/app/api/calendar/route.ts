@@ -1,63 +1,103 @@
 import { connection } from "next/server";
 import { parseFeed } from "@/lib/calendar";
+import { ffWeekParam, parseFfPage } from "@/lib/ffpage";
+import { DAY_MS, addDaysKey, isValidDateKey, weekStartKey } from "@/lib/time";
 import type { NewsEvent } from "@/lib/types";
 
 /**
- * Forex Factory publishes its calendar as weekly export feeds. We fetch this
- * week and next week server-side (the browser can't, due to CORS), cache the
- * result for 30 minutes, and fall back to the last good copy if the feed
- * errors or rate-limits us.
+ * GET /api/calendar?week=YYYY-MM-DD
+ *
+ * Returns the Forex Factory events for the (Sunday-start) week containing `week`.
+ *  - This week / next week: Forex Factory's public JSON export (reliable, has exact time offsets).
+ *  - Any other week: the calendar web page, parsed best-effort. Forex Factory may block
+ *    server-side requests; the error is reported instead of being hidden.
+ * Results are cached per week; the last good copy is served if a refresh fails.
  */
-const BASE = "https://nfs.faireconomy.media";
-const FEEDS = ["ff_calendar_thisweek.json", "ff_calendar_nextweek.json"];
-const TTL_MS = 30 * 60_000;
+const JSON_BASE = "https://nfs.faireconomy.media";
+const PAGE_BASE = "https://www.forexfactory.com/calendar";
+const SHORT_TTL = 30 * 60_000;
+const LONG_TTL = 12 * 60 * 60_000;
 
-let cache: { at: number; events: NewsEvent[] } | null = null;
-let inflight: Promise<NewsEvent[]> | null = null;
+type Entry = { at: number; events: NewsEvent[]; source: "json" | "page" };
+const cache = new Map<string, Entry>();
+const inflight = new Map<string, Promise<Entry>>();
 
-async function fetchFeed(name: string): Promise<NewsEvent[]> {
-  const res = await fetch(`${BASE}/${name}`, {
-    headers: { accept: "application/json", "user-agent": "forex-time-point/0.2" },
+async function fromJson(file: string): Promise<NewsEvent[]> {
+  const res = await fetch(`${JSON_BASE}/${file}`, {
+    headers: { accept: "application/json", "user-agent": "forex-time-point/0.3" },
     signal: AbortSignal.timeout(10_000),
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Forex Factory feed returned HTTP ${res.status}`);
   return parseFeed(await res.json());
 }
 
-async function loadAll(): Promise<NewsEvent[]> {
-  const [thisWeek, nextWeek] = await Promise.allSettled(FEEDS.map(fetchFeed));
-  // Next week's file is often not published until late in the week; that is fine.
-  if (thisWeek.status === "rejected") throw thisWeek.reason;
-  const merged = new Map<string, NewsEvent>();
-  for (const e of thisWeek.value) merged.set(e.id, e);
-  if (nextWeek.status === "fulfilled") for (const e of nextWeek.value) merged.set(e.id, e);
-  return [...merged.values()];
+async function fromPage(weekKey: string): Promise<NewsEvent[]> {
+  const res = await fetch(`${PAGE_BASE}?week=${ffWeekParam(weekKey)}`, {
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "accept-language": "en-US,en;q=0.9",
+      "user-agent":
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      // Ask Forex Factory to render times in UTC.
+      cookie: "fftimezone=UTC; fftimezoneoffset=0; ffdstonoff=0; ffverifytimes=1",
+    },
+    signal: AbortSignal.timeout(15_000),
+    cache: "no-store",
+  });
+  if (res.status === 403 || res.status === 429 || res.status === 503) {
+    throw new Error(`Forex Factory blocked the request for this week (HTTP ${res.status})`);
+  }
+  if (!res.ok) throw new Error(`Forex Factory page returned HTTP ${res.status}`);
+  const events = parseFfPage(await res.text(), weekKey);
+  if (events.length === 0) throw new Error("Forex Factory's page layout was not recognised for this week");
+  return events;
 }
 
-export async function GET() {
-  await connection();
-  const now = Date.now();
+async function load(weekKey: string): Promise<Entry> {
+  const thisWeek = weekStartKey(new Date().toISOString().slice(0, 10));
+  const nextWeek = addDaysKey(thisWeek, 7);
 
-  if (cache && now - cache.at < TTL_MS) {
-    return Response.json({ events: cache.events, fetchedAt: cache.at, stale: false });
+  if (weekKey === thisWeek || weekKey === nextWeek) {
+    try {
+      const events = await fromJson(weekKey === thisWeek ? "ff_calendar_thisweek.json" : "ff_calendar_nextweek.json");
+      // The next-week export is only published late in the week; an empty list is not an answer.
+      if (events.length > 0) return { at: Date.now(), events, source: "json" };
+    } catch {
+      /* fall through to the page */
+    }
+  }
+  return { at: Date.now(), events: await fromPage(weekKey), source: "page" };
+}
+
+export async function GET(request: Request) {
+  await connection();
+  const param = new URL(request.url).searchParams.get("week") ?? new Date().toISOString().slice(0, 10);
+  if (!isValidDateKey(param)) {
+    return Response.json({ error: "Invalid week parameter; expected YYYY-MM-DD." }, { status: 400 });
+  }
+  const weekKey = weekStartKey(param);
+  const ageLimit = Math.abs(Date.now() - Date.parse(`${weekKey}T00:00:00Z`)) < 14 * DAY_MS ? SHORT_TTL : LONG_TTL;
+
+  const hit = cache.get(weekKey);
+  if (hit && Date.now() - hit.at < ageLimit) {
+    return Response.json({ week: weekKey, events: hit.events, fetchedAt: hit.at, stale: false, source: hit.source });
   }
 
   try {
-    inflight ??= loadAll().finally(() => {
-      inflight = null;
-    });
-    const events = await inflight;
-    cache = { at: Date.now(), events };
-    return Response.json({ events, fetchedAt: cache.at, stale: false });
+    let p = inflight.get(weekKey);
+    if (!p) {
+      p = load(weekKey).finally(() => inflight.delete(weekKey));
+      inflight.set(weekKey, p);
+    }
+    const entry = await p;
+    cache.set(weekKey, entry);
+    return Response.json({ week: weekKey, events: entry.events, fetchedAt: entry.at, stale: false, source: entry.source });
   } catch (err) {
-    if (cache) {
-      return Response.json({ events: cache.events, fetchedAt: cache.at, stale: true });
+    if (hit) {
+      return Response.json({ week: weekKey, events: hit.events, fetchedAt: hit.at, stale: true, source: hit.source });
     }
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json(
-      { error: `Could not load the Forex Factory calendar (${message}).` },
-      { status: 502 },
-    );
+    return Response.json({ error: `Could not load events from Forex Factory: ${message}.` }, { status: 502 });
   }
 }

@@ -15,7 +15,7 @@ interface Props {
 }
 
 const field =
-  "rounded border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)]";
+  "rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)]";
 
 export default function MarksPanel({
   points,

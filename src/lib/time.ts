@@ -124,3 +124,25 @@ export const isInRange = (minute: number, start: number, end: number) => {
   const e = mod(end, DAY_MIN);
   return s <= e ? m >= s && m < e : m >= s || m < e;
 };
+
+/** Pie-slice path: tip at the centre, outer edge following the circle (no stroke needed). */
+export const sectorPath = (
+  cx: number,
+  cy: number,
+  r: number,
+  startMin: number,
+  endMin: number,
+) => {
+  const length = mod(endMin - startMin, DAY_MIN);
+  if (length === 0) return "";
+  const a = polar(cx, cy, r, startMin);
+  const b = polar(cx, cy, r, startMin + length);
+  const large = length > DAY_MIN / 2 ? 1 : 0;
+  return `M ${cx} ${cy} L ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`;
+};
+
+/** Forex Factory weeks start on Sunday. Returns the Sunday (YYYY-MM-DD) of the week containing the date. */
+export const weekStartKey = (key: string) => {
+  const dow = new Date(`${key}T00:00:00Z`).getUTCDay();
+  return addDaysKey(key, -dow);
+};

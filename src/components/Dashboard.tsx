@@ -10,10 +10,13 @@ import ThemeToggle from "./ThemeToggle";
 import { computeDayStatus, eventsForDay, isWeekendClosed } from "@/lib/calendar";
 import { SESSIONS, TIMEZONES } from "@/lib/data";
 import {
-  ALERT_LEAD_MS,
+  DAY_MS,
   addDaysKey,
   dateKeyFor,
+  dayStartMs,
+  fmtClock,
   fmtCountdown,
+  fmtDateKey,
   fmtDateKeyShort,
   fmtGmt,
   fmtHM,
@@ -21,6 +24,7 @@ import {
   isValidDateKey,
   localMinutesOf,
   toLocalMinutes,
+  weekStartKey,
 } from "@/lib/time";
 import type { NewsEvent, Theme, TimePoint, TimeRange } from "@/lib/types";
 import { useStoredState } from "@/lib/useStoredState";
@@ -32,12 +36,15 @@ const NO_EVENTS: NewsEvent[] = [];
 const NO_POINTS: TimePoint[] = [];
 const NO_RANGES: TimeRange[] = [];
 const NO_SESSION_PREFS: Record<string, boolean> = {};
+const NO_REASONS: Record<string, string> = {};
+const NO_WINDOWS: Array<[number, number]> = [];
 const DEFAULT_THEME: Theme = "system";
 const DEFAULT_TAB: "news" | "marks" = "news";
 const DEFAULT_IMPACT: ImpactFilter = "all";
 const DEFAULT_CURRENCY = "all";
+const DEFAULT_LEAD = 15;
 
-type CalState = { status: "loading" | "ready" | "error"; events: NewsEvent[]; stale: boolean; message: string };
+type WeekState = { events: NewsEvent[]; stale: boolean; error: string | null };
 
 /* Browser notification permission as an external store. */
 const permListeners = new Set<() => void>();
@@ -54,7 +61,8 @@ const getDeviceOffset = () => -new Date().getTimezoneOffset();
 const getServerOffset = () => 0;
 
 const btn =
-  "rounded border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--fg)] hover:text-[var(--fg)]";
+  "rounded-md px-3 py-1.5 text-xs text-[var(--muted)] ring-1 ring-[var(--line)] transition-colors hover:text-[var(--fg)] hover:ring-[var(--fg)]";
+const panel = "rounded-xl bg-[var(--surface)] ring-1 ring-[var(--line)]";
 
 export default function Dashboard() {
   const deviceOffset = useSyncExternalStore(noopSubscribe, getDeviceOffset, getServerOffset);
@@ -62,7 +70,7 @@ export default function Dashboard() {
   /* Settings that persist in this browser. */
   const [storedOffset, setStoredOffset] = useStoredState<number | null>("ftp:offset", NO_OFFSET);
   const [theme, setTheme] = useStoredState<Theme>("ftp:theme", DEFAULT_THEME);
-  const [pinnedIds, setPinnedIds] = useStoredState<string[]>("ftp:pinned", NO_IDS);
+  const [selected, setSelected] = useStoredState<NewsEvent[]>("ftp:selected", NO_EVENTS);
   const [custom, setCustom] = useStoredState<NewsEvent[]>("ftp:custom-events", NO_EVENTS);
   const [points, setPoints] = useStoredState<TimePoint[]>("ftp:points", NO_POINTS);
   const [ranges, setRanges] = useStoredState<TimeRange[]>("ftp:intervals", NO_RANGES);
@@ -71,18 +79,20 @@ export default function Dashboard() {
   const [tab, setTab] = useStoredState<"news" | "marks">("ftp:tab", DEFAULT_TAB);
   const [impactFilter, setImpactFilter] = useStoredState<ImpactFilter>("ftp:impact", DEFAULT_IMPACT);
   const [currencyFilter, setCurrencyFilter] = useStoredState<string>("ftp:currency", DEFAULT_CURRENCY);
+  const [leadMin, setLeadMin] = useStoredState<number>("ftp:lead", DEFAULT_LEAD);
 
   const offset = storedOffset ?? deviceOffset;
 
   const [nowMs, setNowMs] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // null = follow today
-  const [cal, setCal] = useState<CalState>({ status: "loading", events: NO_EVENTS, stale: false, message: "" });
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [weeks, setWeeks] = useState<Record<string, WeekState>>({});
+  const inflight = useRef<Set<string>>(new Set());
   const perm = useSyncExternalStore(subscribePerm, getPerm, getServerPerm);
   const audioRef = useRef<AudioContext | null>(null);
   const notifiedRef = useRef<Set<string>>(new Set());
 
-  /* Theme: apply the stored choice to <html>. (A tiny inline script in the layout
-     does the same before first paint to avoid a flash.) */
+  /* Apply the stored theme to <html>. (An inline script in the layout does this before first paint.) */
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
@@ -99,42 +109,67 @@ export default function Dashboard() {
     };
   }, []);
 
-  /* Forex Factory calendar (via our server route), refreshed every 30 minutes. */
-  const load = useCallback(async () => {
+  /* ---------- Calendar data: one request per week, fetched when that week is viewed ---------- */
+  const loadWeek = useCallback(async (weekKey: string) => {
+    if (inflight.current.has(weekKey)) return;
+    inflight.current.add(weekKey);
     try {
-      const res = await fetch("/api/calendar", { cache: "no-store" });
+      const res = await fetch(`/api/calendar?week=${weekKey}`, { cache: "no-store" });
       const data = (await res.json()) as { events?: NewsEvent[]; stale?: boolean; error?: string };
       if (!res.ok || data.error || !data.events) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setCal({ status: "ready", events: data.events, stale: Boolean(data.stale), message: "" });
+      setWeeks((prev) => ({ ...prev, [weekKey]: { events: data.events!, stale: Boolean(data.stale), error: null } }));
     } catch (e) {
-      setCal((prev) => ({
+      const message = e instanceof Error ? e.message : "Could not load the calendar.";
+      setWeeks((prev) => ({
         ...prev,
-        status: "error",
-        message: e instanceof Error ? e.message : "Could not load the calendar.",
+        [weekKey]: { events: prev[weekKey]?.events ?? NO_EVENTS, stale: false, error: message },
       }));
+    } finally {
+      inflight.current.delete(weekKey);
     }
   }, []);
 
-  useEffect(() => {
-    const first = window.setTimeout(load, 0);
-    const id = window.setInterval(load, 30 * 60_000);
-    return () => {
-      window.clearTimeout(first);
-      window.clearInterval(id);
-    };
-  }, [load]);
-
-  const retry = () => {
-    setCal((prev) => ({ ...prev, status: "loading" }));
-    void load();
-  };
-
-  /* ---------- Derived data ---------- */
   const today = nowMs === null ? null : dateKeyFor(nowMs, offset);
   const dateKey = selectedDate ?? today;
   const isToday = selectedDate === null;
+  const weekKey = dateKey ? weekStartKey(dateKey) : null;
+  const week = weekKey ? weeks[weekKey] : undefined;
 
-  const allEvents = useMemo(() => [...cal.events, ...custom], [cal.events, custom]);
+  useEffect(() => {
+    if (!weekKey || week) return;
+    const id = window.setTimeout(() => void loadWeek(weekKey), 0);
+    return () => window.clearTimeout(id);
+  }, [weekKey, week, loadWeek]);
+
+  /* Refresh the visible week every 30 minutes. */
+  useEffect(() => {
+    if (!weekKey) return;
+    const id = window.setInterval(() => void loadWeek(weekKey), 30 * 60_000);
+    return () => window.clearInterval(id);
+  }, [weekKey, loadWeek]);
+
+  const retry = () => {
+    if (!weekKey) return;
+    setWeeks((prev) => {
+      const next = { ...prev };
+      delete next[weekKey];
+      return next;
+    });
+  };
+
+  const feed: FeedState = !week
+    ? { status: "loading" }
+    : week.error
+      ? { status: "error", message: week.error }
+      : { status: "ready", stale: week.stale };
+
+  /* ---------- Derived data ---------- */
+  const allEvents = useMemo(() => {
+    const map = new Map<string, NewsEvent>();
+    for (const w of Object.values(weeks)) for (const e of w.events) map.set(e.id, e);
+    for (const e of custom) map.set(e.id, e);
+    return [...map.values()];
+  }, [weeks, custom]);
 
   const dayEvents = useMemo(
     () => (dateKey ? eventsForDay(allEvents, dateKey, offset) : NO_EVENTS),
@@ -145,45 +180,31 @@ export default function Dashboard() {
     [dateKey, offset, dayEvents],
   );
 
-  const pinnedOnDay = useMemo(
-    () => dayEvents.filter((e) => !e.allDay && pinnedIds.includes(e.id)),
-    [dayEvents, pinnedIds],
-  );
+  const selectedIds = useMemo(() => selected.map((e) => e.id), [selected]);
 
-  const upcomingPinned = useMemo(() => {
+  /* Selected events are stored as snapshots so alerts work whichever week is on screen. */
+  const selectedOnDay = useMemo(() => {
+    if (!dateKey) return NO_EVENTS;
+    const start = dayStartMs(dateKey, offset);
+    return selected.filter((e) => !e.allDay && e.atMs >= start && e.atMs < start + DAY_MS);
+  }, [selected, dateKey, offset]);
+
+  const upcomingSelected = useMemo(() => {
     if (nowMs === null) return NO_EVENTS;
-    return allEvents
-      .filter((e) => !e.allDay && pinnedIds.includes(e.id) && e.atMs > nowMs - 5 * 60_000)
-      .sort((a, b) => a.atMs - b.atMs);
-  }, [allEvents, pinnedIds, nowMs]);
+    return selected.filter((e) => e.atMs > nowMs - 5 * 60_000).sort((a, b) => a.atMs - b.atMs);
+  }, [selected, nowMs]);
 
-  const outOfRangeNote = useMemo(() => {
-    if (cal.status !== "ready" || cal.events.length === 0 || !dateKey) return null;
-    let min = "9999-99-99";
-    let max = "0000-00-00";
-    for (const e of cal.events) {
-      const k = e.allDay && e.dateKey ? e.dateKey : dateKeyFor(e.atMs, offset);
-      if (k < min) min = k;
-      if (k > max) max = k;
-    }
-    if (dateKey >= min && dateKey <= max) return null;
-    return `Forex Factory's public feed covers ${fmtDateKeyShort(min)} – ${fmtDateKeyShort(max)}. There is no event data for this date; weekends are still marked as closed.`;
-  }, [cal, dateKey, offset]);
+  const toggleSelect = (e: NewsEvent) =>
+    setSelected((prev) => (prev.some((x) => x.id === e.id) ? prev.filter((x) => x.id !== e.id) : [...prev, e]));
 
-  const feed: FeedState =
-    cal.status === "loading"
-      ? { status: "loading" }
-      : cal.status === "error"
-        ? { status: "error", message: cal.message }
-        : { status: "ready", stale: cal.stale };
-
-  /* Alerts: any pinned event starting within the next 15 minutes (any date). */
+  /* Alerts: any selected event starting within the chosen lead time. */
   const activeAlerts = useMemo(() => {
-    if (nowMs === null) return [];
-    return upcomingPinned.filter(
-      (e) => e.atMs >= nowMs && e.atMs - nowMs <= ALERT_LEAD_MS && !dismissed.includes(e.id),
+    if (nowMs === null) return NO_EVENTS;
+    const lead = leadMin * 60_000;
+    return upcomingSelected.filter(
+      (e) => e.atMs >= nowMs && e.atMs - nowMs <= lead && !dismissed.includes(e.id),
     );
-  }, [upcomingPinned, nowMs, dismissed]);
+  }, [upcomingSelected, nowMs, leadMin, dismissed]);
 
   useEffect(() => {
     for (const e of activeAlerts) {
@@ -191,7 +212,7 @@ export default function Dashboard() {
       notifiedRef.current.add(e.id);
       try {
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          new Notification(`In 15 min: ${e.title}`, {
+          new Notification(`Starting soon: ${e.title}`, {
             body: `${e.country} · ${fmtHM(localMinutesOf(e.atMs, offset))} (${fmtGmt(offset)})`,
           });
         }
@@ -235,9 +256,6 @@ export default function Dashboard() {
     }
   };
 
-  const togglePin = (id: string) =>
-    setPinnedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-
   const pickDate = (key: string) => {
     if (!isValidDateKey(key)) return;
     setSelectedDate(key === today ? null : key);
@@ -246,8 +264,9 @@ export default function Dashboard() {
     if (dateKey) pickDate(addDaysKey(dateKey, days));
   };
 
-  const nowUtcMin = nowMs === null ? null : (nowMs % 86_400_000) / 60_000;
+  const nowUtcMin = nowMs === null ? null : (nowMs % DAY_MS) / 60_000;
   const marketClosedNow = nowMs !== null && isWeekendClosed(nowMs);
+  const closedHeadline = status?.fullyClosed ? status.headline : isToday && marketClosedNow ? "Market closed" : null;
 
   const offsetOptions = useMemo(() => {
     const list = TIMEZONES.map((t) => ({ offset: t.offset, label: `${fmtGmt(t.offset)} · ${t.places}` }));
@@ -259,7 +278,7 @@ export default function Dashboard() {
   }, [deviceOffset]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-8">
+    <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-5 px-4 py-5 sm:px-6 sm:py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <Logo />
         <div className="flex flex-wrap items-center gap-2">
@@ -272,7 +291,7 @@ export default function Dashboard() {
             title={
               perm === "denied"
                 ? "Notifications are blocked in your browser settings"
-                : "Enable sound and desktop notifications for 15-minute alerts"
+                : "Enable sound and desktop notifications for event alerts"
             }
           >
             {perm === "granted" ? "Alerts on" : perm === "denied" ? "Alerts blocked" : "Enable alerts"}
@@ -281,13 +300,13 @@ export default function Dashboard() {
       </header>
 
       {/* Time zone + trading day */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded border border-[var(--line)] p-3">
+      <div className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-3 p-3`}>
         <label className="flex min-w-0 flex-1 basis-64 items-center gap-2 text-xs text-[var(--muted)] sm:flex-none">
           <span className="shrink-0">Time zone</span>
           <select
             value={offset}
             onChange={(e) => setStoredOffset(Number(e.target.value))}
-            className="min-w-0 flex-1 rounded border border-[var(--line)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--fg)] sm:w-[300px] sm:flex-none"
+            className="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--fg)] sm:w-[300px] sm:flex-none"
           >
             {offsetOptions.map((o) => (
               <option key={o.offset} value={o.offset}>
@@ -311,43 +330,65 @@ export default function Dashboard() {
             value={dateKey ?? ""}
             onChange={(e) => pickDate(e.target.value)}
             aria-label="Trading day"
-            className="rounded border border-[var(--line)] bg-transparent px-2 py-1.5 font-mono text-sm outline-none focus:border-[var(--accent)]"
+            className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 font-mono text-sm outline-none focus:border-[var(--accent)]"
           />
           <button type="button" onClick={() => shiftDate(1)} disabled={!dateKey} aria-label="Next day" className={btn}>
             ›
           </button>
-          <button
-            type="button"
-            onClick={() => setSelectedDate(null)}
-            disabled={isToday}
-            className={`${btn} disabled:opacity-40`}
-          >
+          <button type="button" onClick={() => setSelectedDate(null)} disabled={isToday} className={`${btn} disabled:opacity-40`}>
             Today
           </button>
         </div>
       </div>
 
-      <main className="grid gap-8 lg:grid-cols-[minmax(0,700px)_minmax(0,1fr)] lg:gap-10">
-        <div className="flex min-w-0 flex-col gap-5">
+      <main className="grid gap-6 lg:grid-cols-[minmax(0,700px)_minmax(0,1fr)] lg:gap-8">
+        <div className="flex min-w-0 flex-col gap-4">
           {status && <StatusBanner status={status} />}
 
-          <Clock
-            nowMs={nowMs}
-            offset={offset}
-            dateKey={dateKey}
-            isToday={isToday}
-            pinned={pinnedOnDay}
-            points={points}
-            ranges={ranges}
-            visibleSessions={sessionPrefs}
-            closedSessions={status?.closedSessions ?? NO_SESSION_PREFS_STR}
-            closedWindows={status?.closedWindows ?? NO_WINDOWS}
-            fullyClosed={status?.fullyClosed ?? false}
-          />
+          {/* Readout lives above the dial so the dial stays clean */}
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 px-1">
+            <div>
+              <p className="font-mono text-4xl font-semibold leading-none tabular-nums tracking-tight sm:text-5xl">
+                {nowMs === null ? "--:--:--" : fmtClock(nowMs, offset)}
+              </p>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                {dateKey ? (isToday ? fmtDateKey(dateKey) : `Viewing ${fmtDateKey(dateKey)}`) : ""}
+                <span className="ml-2 font-mono text-xs">{fmtGmt(offset)}</span>
+              </p>
+            </div>
+            {nowMs !== null && (
+              <span
+                className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ring-1 ${
+                  closedHeadline
+                    ? "text-[var(--danger)] ring-[color-mix(in_srgb,var(--danger)_45%,transparent)]"
+                    : "text-[var(--ok)] ring-[color-mix(in_srgb,var(--ok)_45%,transparent)]"
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${closedHeadline ? "bg-[var(--danger)]" : "bg-[var(--ok)]"}`} />
+                {closedHeadline ?? (isToday ? "Market open" : "Trading day")}
+              </span>
+            )}
+          </div>
+
+          <div className={`${panel} p-2 sm:p-4`}>
+            <Clock
+              nowMs={nowMs}
+              offset={offset}
+              isToday={isToday}
+              pinned={selectedOnDay}
+              highlightId={hoverId}
+              points={points}
+              ranges={ranges}
+              visibleSessions={sessionPrefs}
+              closedSessions={status?.closedSessions ?? NO_REASONS}
+              closedWindows={status?.closedWindows ?? NO_WINDOWS}
+              fullyClosed={status?.fullyClosed ?? false}
+            />
+          </div>
 
           <section aria-label="Trading sessions">
-            <h2 className="mb-2 text-sm font-medium tracking-wide">Sessions</h2>
-            <ul className="grid gap-px overflow-hidden rounded border border-[var(--line)] bg-[var(--line)] sm:grid-cols-2">
+            <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Sessions</h2>
+            <ul className={`${panel} grid gap-px overflow-hidden bg-[var(--line)] sm:grid-cols-2`}>
               {SESSIONS.map((s) => {
                 const visible = sessionPrefs[s.id] !== false;
                 const holidayReason = status?.closedSessions[s.id];
@@ -368,7 +409,7 @@ export default function Dashboard() {
                   tone = open ? "open" : "none";
                 }
                 return (
-                  <li key={s.id} className="flex items-center gap-3 bg-[var(--bg)] px-3 py-2.5" title={tip || undefined}>
+                  <li key={s.id} className="flex items-center gap-3 bg-[var(--surface)] px-3.5 py-2.5" title={tip || undefined}>
                     <input
                       type="checkbox"
                       checked={visible}
@@ -376,7 +417,7 @@ export default function Dashboard() {
                       aria-label={`Show ${s.name} on clock`}
                       className="accent-[var(--accent)]"
                     />
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full opacity-80" style={{ background: s.color }} />
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
                     <span className="min-w-0 flex-1 truncate text-sm">{s.name}</span>
                     <span className="font-mono text-xs text-[var(--muted)]">
                       {fmtHM(toLocalMinutes(s.startUtc, offset))}–{fmtHM(toLocalMinutes(s.endUtc, offset))}
@@ -384,7 +425,7 @@ export default function Dashboard() {
                     <span
                       className={`w-14 text-right text-xs ${
                         tone === "open"
-                          ? "text-[var(--ok)]"
+                          ? "font-medium text-[var(--ok)]"
                           : tone === "closed"
                             ? "font-medium text-[var(--danger)]"
                             : "text-[var(--muted)]"
@@ -396,7 +437,7 @@ export default function Dashboard() {
                 );
               })}
             </ul>
-            <p className="mt-2 text-[11px] text-[var(--muted)]">
+            <p className="mt-2 px-1 text-[11px] text-[var(--muted)]">
               Standard UTC hours; daylight-saving shifts are not applied. Weekend closure is Fri 22:00 – Sun 22:00 UTC.
             </p>
           </section>
@@ -418,7 +459,7 @@ export default function Dashboard() {
                 onClick={() => setTab(id)}
                 className={`-mb-px border-b-2 pb-2 text-sm transition-colors ${
                   tab === id
-                    ? "border-[var(--accent)] text-[var(--fg)]"
+                    ? "border-[var(--accent)] font-medium text-[var(--fg)]"
                     : "border-transparent text-[var(--muted)] hover:text-[var(--fg)]"
                 }`}
               >
@@ -433,25 +474,28 @@ export default function Dashboard() {
                 dateKey={dateKey}
                 isToday={isToday}
                 dayEvents={dayEvents}
-                upcomingPinned={upcomingPinned}
-                pinnedIds={pinnedIds}
+                upcomingSelected={upcomingSelected}
+                selectedIds={selectedIds}
                 offset={offset}
                 nowMs={nowMs}
                 feed={feed}
-                outOfRangeNote={outOfRangeNote}
+                leadMin={leadMin}
                 impactFilter={impactFilter}
                 currencyFilter={currencyFilter}
+                hoverId={hoverId}
+                onHover={setHoverId}
+                onLeadChange={setLeadMin}
                 onImpactFilter={setImpactFilter}
                 onCurrencyFilter={setCurrencyFilter}
-                onTogglePin={togglePin}
+                onToggleSelect={toggleSelect}
                 onAddCustom={(e) => {
-                  const id = `c-${crypto.randomUUID()}`;
-                  setCustom((prev) => [...prev, { ...e, id, custom: true }]);
-                  setPinnedIds((prev) => [...prev, id]);
+                  const ev: NewsEvent = { ...e, id: `c-${crypto.randomUUID()}`, custom: true };
+                  setCustom((prev) => [...prev, ev]);
+                  setSelected((prev) => [...prev, ev]);
                 }}
                 onRemoveCustom={(id) => {
                   setCustom((prev) => prev.filter((e) => e.id !== id));
-                  setPinnedIds((prev) => prev.filter((x) => x !== id));
+                  setSelected((prev) => prev.filter((e) => e.id !== id));
                 }}
                 onRetry={retry}
               />
@@ -476,11 +520,11 @@ export default function Dashboard() {
         Event data from{" "}
         <a href="https://www.forexfactory.com/calendar" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-[var(--fg)]">
           Forex Factory
-        </a>{" "}
-        (public weekly calendar export), converted to your selected GMT zone. Your settings are saved in this browser.
+        </a>
+        , converted to your selected GMT zone. Your settings are saved in this browser.
       </footer>
 
-      {/* 15-minute alerts */}
+      {/* Event alerts */}
       <div
         aria-live="assertive"
         className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2"
@@ -489,13 +533,13 @@ export default function Dashboard() {
           <div
             key={e.id}
             role="alert"
-            className="pointer-events-auto flex items-start gap-3 rounded border border-[var(--accent)] bg-[var(--bg)] p-3 shadow-lg"
+            className="pointer-events-auto flex items-start gap-3 rounded-xl border-l-4 border-[var(--accent)] bg-[var(--surface)] p-3.5 shadow-xl ring-1 ring-[var(--line)]"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-xs uppercase tracking-wider text-[var(--accent)]">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
                 Starts in {nowMs === null ? "" : fmtCountdown(e.atMs - nowMs)}
               </p>
-              <p className="truncate text-sm">
+              <p className="truncate text-sm font-medium">
                 {e.country && <span className="mr-2 font-mono text-xs text-[var(--muted)]">{e.country}</span>}
                 {e.title}
               </p>
@@ -517,6 +561,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-const NO_SESSION_PREFS_STR: Record<string, string> = {};
-const NO_WINDOWS: Array<[number, number]> = [];
