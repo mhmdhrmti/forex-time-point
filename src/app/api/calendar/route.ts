@@ -39,8 +39,6 @@ async function fromPage(weekKey: string): Promise<NewsEvent[]> {
       "accept-language": "en-US,en;q=0.9",
       "user-agent":
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      // Ask Forex Factory to render times in UTC.
-      cookie: "fftimezone=UTC; fftimezoneoffset=0; ffdstonoff=0; ffverifytimes=1",
     },
     signal: AbortSignal.timeout(15_000),
     cache: "no-store",
@@ -49,8 +47,8 @@ async function fromPage(weekKey: string): Promise<NewsEvent[]> {
     throw new Error(`Forex Factory blocked the request for this week (HTTP ${res.status})`);
   }
   if (!res.ok) throw new Error(`Forex Factory page returned HTTP ${res.status}`);
-  const events = parseFfPage(await res.text(), weekKey);
-  if (events.length === 0) throw new Error("Forex Factory's page layout was not recognised for this week");
+  const events = parseFfPage(await res.text());
+  if (events.length === 0) throw new Error("Forex Factory's page did not contain calendar data for this week");
   return events;
 }
 

@@ -30,7 +30,7 @@ npm run build && npm start
 `GET /api/calendar?week=YYYY-MM-DD` (`src/app/api/calendar/route.ts`) returns the Forex Factory events for the Sunday-start week containing that date; the client requests a week the first time you view a date in it.
 
 - **This week / next week**: Forex Factory's public JSON export (`ff_calendar_thisweek.json` / `ff_calendar_nextweek.json`), parsed in `src/lib/calendar.ts`.
-- **Any other week**: the Forex Factory calendar web page, parsed best-effort in `src/lib/ffpage.ts` (assumes the page renders times in UTC). This path is **unverified against the live site**, and Forex Factory may block server-side requests; if it does, the news panel shows the reason with a Retry button.
+- **Any other week**: the Forex Factory calendar web page, whose embedded `calendarComponentStates` block (absolute timestamps) is parsed in `src/lib/ffpage.ts`. Verified against the live page; Forex Factory may still block server-side requests from some hosts, in which case the news panel shows the reason with a Retry button.
 - Results are cached per week (30 min for nearby weeks, 12 h otherwise); the last good copy is served if a refresh fails.
 - Check Forex Factory's terms before using the data commercially. The app never substitutes made-up data.
 
@@ -40,11 +40,26 @@ npm run build && npm start
 - Holidays map to sessions by currency (AUD/NZD → Sydney, JPY/CNY → Tokyo, GBP/EUR/CHF → London, USD/CAD → New York). That is an approximation; a holiday listed for "All" closes everything.
 - Alerts need the tab to be open (no server push yet). Settings live per browser, not per account.
 
+## Closed market
+
+Weekend (Fri 22:00 – Sun 22:00 UTC) and "ALL" holidays close the market: the dial face has no fill and a red border, session lanes are hidden, session toggles and adding points/ranges are disabled, the badge says "Market closed", and the clock keeps running.
+
+## PWA
+
+`src/app/manifest.ts`, icons in `public/icons/`, and `public/sw.js` (offline shell, cached static assets, last calendar copy, notification click). The service worker registers in production builds only; installing needs HTTPS. On iOS use Share → Add to Home Screen.
+
+## Tests
+
+`npm test` covers time-zone maths (against `Intl`), week/date keys, holiday parsing and weekend closure.
+
 ## Structure
 
 ```
-src/app/api/calendar/  Forex Factory proxy route (server)
-src/lib/               time maths, calendar parsing + closure logic, sessions/timezones, localStorage hook
-src/components/        Clock (SVG), NewsPanel, MarksPanel, StatusBanner, ThemeToggle, Logo, Dashboard
-src/app/               layout, page, global styles, icon.svg (favicon)
+src/app/                 layout, page, manifest, icons, API route (Forex Factory proxy)
+src/lib/                 time maths, event building, FF parsers, closure logic, data, localStorage hook
+src/hooks/               useNow, useTheme, useCalendarWeeks, useEventAlerts, useInstallPrompt
+src/components/ui/       Button, Panel, Tabs, Dropdown, SegmentedControl, TextInput, StatusPill
+src/components/clock/    ClockFace, HourMarks, RangeWedges, SessionLanes, Marker(s), ClockHands, Clock
+src/components/{header,controls,status,sessions,news,marks,pwa}/   feature components
+src/components/Dashboard.tsx   orchestrator
 ```

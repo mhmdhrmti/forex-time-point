@@ -1,53 +1,31 @@
 import { SESSIONS } from "./data";
 import { DAY_MS, MIN_MS, dayStartMs, fmtHM } from "./time";
-import type { EventImpact, NewsEvent } from "./types";
+import { buildEvent, dedupe } from "./events";
+import type { NewsEvent } from "./types";
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-const normImpact = (raw: string): EventImpact => {
-  const v = raw.toLowerCase();
-  if (v.includes("holiday")) return "holiday";
-  if (v.includes("high")) return "high";
-  if (v.includes("med")) return "medium";
-  return "low";
-};
-
 /**
  * Parse a Forex Factory weekly calendar export (JSON array of
- * { title, country, date (ISO with offset), impact, forecast, previous }).
+ * { title, country (currency), date (ISO with offset), impact, forecast, previous }).
  * Unknown or malformed rows are skipped rather than failing the whole feed.
  */
 export function parseFeed(raw: unknown): NewsEvent[] {
   if (!Array.isArray(raw)) return [];
-  const seen = new Set<string>();
-  const out: NewsEvent[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const r = item as Record<string, unknown>;
-    const title = str(r.title);
-    const date = str(r.date);
-    if (!title || !date) continue;
-    const atMs = Date.parse(date);
-    if (Number.isNaN(atMs)) continue;
-    const country = (str(r.country) || "ALL").toUpperCase();
-    const impact = normImpact(str(r.impact));
-    const id = `${country}|${title}|${atMs}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const holiday = impact === "holiday";
-    out.push({
-      id,
-      title,
-      country,
-      impact,
-      atMs,
-      allDay: holiday,
-      dateKey: holiday ? date.slice(0, 10) : undefined,
-      forecast: str(r.forecast) || undefined,
-      previous: str(r.previous) || undefined,
-    });
-  }
-  return out;
+  return dedupe(
+    raw.map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const r = item as Record<string, unknown>;
+      return buildEvent({
+        title: str(r.title),
+        currency: str(r.country),
+        impact: str(r.impact),
+        atMs: Date.parse(str(r.date)),
+        forecast: str(r.forecast),
+        previous: str(r.previous),
+      });
+    }),
+  );
 }
 
 /** Events that belong to a calendar date in the viewer's GMT offset. */

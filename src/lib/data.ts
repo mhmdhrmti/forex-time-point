@@ -59,3 +59,7 @@ export const TIMEZONES: TimezoneOption[] = [
   { offset: 780, places: "Tonga, Samoa" },
   { offset: 840, places: "Kiritimati" },
 ];
+
+/** Short place name for a GMT offset, e.g. 210 -> "Tehran". */
+export const zoneName = (offset: number) =>
+  TIMEZONES.find((t) => t.offset === offset)?.places.split(",")[0].trim() ?? "";
