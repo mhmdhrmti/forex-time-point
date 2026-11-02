@@ -146,3 +146,20 @@ export const weekStartKey = (key: string) => {
   const dow = new Date(`${key}T00:00:00Z`).getUTCDay();
   return addDaysKey(key, -dow);
 };
+
+/** UTC offset (minutes) of an IANA zone at an instant, daylight saving included. */
+export function zoneOffsetMin(zone: string, ms: number): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  }).formatToParts(ms);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);
+}

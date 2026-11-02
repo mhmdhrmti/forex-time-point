@@ -17,6 +17,7 @@ import { useCalendarWeeks } from "@/hooks/useCalendarWeeks";
 import { useEventAlerts } from "@/hooks/useEventAlerts";
 import { useNow } from "@/hooks/useNow";
 import { useTheme } from "@/hooks/useTheme";
+import { resolveSessions } from "@/lib/data";
 import { computeDayStatus, eventsForDay, isWeekendClosed } from "@/lib/calendar";
 import { DAY_MS, addDaysKey, dateKeyFor, dayStartMs, isValidDateKey, weekStartKey } from "@/lib/time";
 import type { NewsEvent, Theme, TimePoint, TimeRange } from "@/lib/types";
@@ -67,7 +68,7 @@ export default function Dashboard() {
 
   const today = nowMs === null ? null : dateKeyFor(nowMs, offset);
   const dateKey = selectedDate ?? today;
-  const isToday = selectedDate === null;
+  const isToday = selectedDate === null || selectedDate === today;
   const weekKey = dateKey ? weekStartKey(dateKey) : null;
 
   const { events: feedEvents, feed, retry } = useCalendarWeeks(weekKey);
@@ -82,6 +83,10 @@ export default function Dashboard() {
 
   const dayEvents = useMemo(() => (dateKey ? eventsForDay(allEvents, dateKey, offset) : NO_EVENTS), [allEvents, dateKey, offset]);
   const status = useMemo(() => (dateKey ? computeDayStatus(dateKey, offset, dayEvents) : null), [dateKey, offset, dayEvents]);
+
+  /* Session hours follow daylight saving for the viewed date. */
+  const sessionRefMs = dateKey ? dayStartMs(dateKey, offset) + DAY_MS / 2 : 0;
+  const sessions = useMemo(() => resolveSessions(sessionRefMs), [sessionRefMs]);
 
   const selectedIds = useMemo(() => selected.map((e) => e.id), [selected]);
 
@@ -151,6 +156,7 @@ export default function Dashboard() {
             <Clock
               nowMs={nowMs}
               offset={offset}
+              sessions={sessions}
               marketClosed={marketClosed}
               closedWindows={status?.closedWindows ?? NO_WINDOWS}
               closedSessions={status?.closedSessions ?? NO_REASONS}
@@ -163,6 +169,7 @@ export default function Dashboard() {
           </Panel>
           <SessionList
             offset={offset}
+            sessions={sessions}
             nowUtcMin={nowUtcMin}
             isToday={isToday}
             marketClosed={marketClosed}

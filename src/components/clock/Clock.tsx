@@ -1,6 +1,6 @@
 "use client";
 
-import type { NewsEvent, TimePoint, TimeRange } from "@/lib/types";
+import type { NewsEvent, Session, TimePoint, TimeRange } from "@/lib/types";
 import ClockFace from "./ClockFace";
 import ClockHands from "./ClockHands";
 import EventMarkers from "./EventMarkers";
@@ -13,6 +13,7 @@ import { C, R_RANGE, SIZE } from "./geometry";
 interface Props {
   nowMs: number | null;
   offset: number;
+  sessions: Session[];
   /** Closed: empty face + red border, session lanes hidden. The clock itself keeps running. */
   marketClosed: boolean;
   /** Part-day closures as local minutes. */
@@ -30,6 +31,7 @@ interface Props {
 export default function Clock({
   nowMs,
   offset,
+  sessions,
   marketClosed,
   closedWindows,
   closedSessions,
@@ -50,7 +52,7 @@ export default function Clock({
       <ClockFace closed={marketClosed} closedWindows={closedWindows} />
       <HourMarks />
       <RangeWedges ranges={ranges} offset={offset} />
-      {!marketClosed && <SessionLanes offset={offset} visible={visibleSessions} closedSessions={closedSessions} />}
+      {!marketClosed && <SessionLanes offset={offset} sessions={sessions} visible={visibleSessions} closedSessions={closedSessions} />}
       <PointMarkers points={points} offset={offset} />
       <EventMarkers events={events} offset={offset} highlightId={highlightId} />
       {nowMs !== null && <ClockHands nowMs={nowMs} offset={offset} />}

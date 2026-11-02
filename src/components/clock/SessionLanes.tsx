@@ -1,9 +1,11 @@
-import { SESSIONS } from "@/lib/data";
+import type { Session } from "@/lib/types";
 import { arcPath, fmtGmt, fmtHM, toLocalMinutes } from "@/lib/time";
 import { C, LANE_BOTTOM, LANE_TOP, LANE_W, laneCentre } from "./geometry";
 
 interface Props {
   offset: number;
+  /** Sessions resolved for the viewed date. */
+  sessions: Session[];
   /** Per-session visibility (missing = visible). */
   visible: Record<string, boolean>;
   /** Session id → reason, for sessions closed by a bank holiday. */
@@ -11,8 +13,8 @@ interface Props {
 }
 
 /** Trading sessions as wide, translucent, distinctly coloured lanes on a shared faint track. */
-export default function SessionLanes({ offset, visible, closedSessions }: Props) {
-  const shown = SESSIONS.filter((s) => visible[s.id] !== false);
+export default function SessionLanes({ offset, sessions, visible, closedSessions }: Props) {
+  const shown = sessions.filter((s) => visible[s.id] !== false);
   return (
     <g>
       <circle cx={C} cy={C} r={(LANE_TOP + LANE_BOTTOM) / 2} fill="none" stroke="var(--lane-track)" strokeWidth={LANE_TOP - LANE_BOTTOM} />

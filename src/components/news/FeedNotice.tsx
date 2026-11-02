@@ -3,7 +3,7 @@ import { fmtDateKeyShort } from "@/lib/time";
 
 export type FeedState =
   | { status: "loading" }
-  | { status: "ready"; stale: boolean }
+  | { status: "ready"; stale: boolean; fetchedAt?: number; source?: string }
   | { status: "error"; message: string };
 
 /** Loading / error / stale-data message for the Forex Factory feed. */

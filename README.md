@@ -36,13 +36,13 @@ npm run build && npm start
 
 ## Notes and limitations
 
-- Time zones are fixed GMT offsets and session hours are standard UTC hours. Daylight saving is not applied automatically, so change the offset when your region shifts.
+- Your time zone is a fixed GMT offset (change it when your region shifts). Session hours and the weekend closure are computed from each market's local hours (Sydney 07–16, Tokyo 09–18, London 08–17, New York 08–17), so they follow daylight saving.
 - Holidays map to sessions by currency (AUD/NZD → Sydney, JPY/CNY → Tokyo, GBP/EUR/CHF → London, USD/CAD → New York). That is an approximation; a holiday listed for "All" closes everything.
 - Alerts need the tab to be open (no server push yet). Settings live per browser, not per account.
 
 ## Closed market
 
-Weekend (Fri 22:00 – Sun 22:00 UTC) and "ALL" holidays close the market: the dial face has no fill and a red border, session lanes are hidden, session toggles and adding points/ranges are disabled, the badge says "Market closed", and the clock keeps running.
+Weekend (Fri 17:00 – Sun 17:00 New York time) and "ALL" holidays close the market: the dial face has no fill and a red border, session lanes are hidden, session toggles and adding points/ranges are disabled, the badge says "Market closed", and the clock keeps running.
 
 ## PWA
 

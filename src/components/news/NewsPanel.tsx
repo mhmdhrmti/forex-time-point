@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import Panel from "@/components/ui/Panel";
-import { fmtDateKey, fmtGmt } from "@/lib/time";
+import { ffWeekParam } from "@/lib/ffpage";
+import { fmtDateKey, fmtGmt, fmtHM, localMinutesOf } from "@/lib/time";
 import type { NewsEvent } from "@/lib/types";
 import AddEventForm from "./AddEventForm";
 import EventFilters, { type ImpactFilter } from "./EventFilters";
@@ -61,7 +62,21 @@ export default function NewsPanel(p: Props) {
               </span>
             )}
           </h2>
-          <p className="text-xs text-[var(--muted)]">Forex Factory · times in {fmtGmt(p.offset)}</p>
+          <p className="text-xs text-[var(--muted)]">
+            <a
+              href={`https://www.forexfactory.com/calendar?day=${ffWeekParam(p.dateKey)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-[var(--fg)]"
+            >
+              Forex Factory
+            </a>{" "}
+            · times in {fmtGmt(p.offset)}
+            {p.feed.status === "ready" && p.feed.fetchedAt
+              ? ` · updated ${fmtHM(localMinutesOf(p.feed.fetchedAt, p.offset))}${p.feed.source === "json" ? " · weekly feed" : ""}`
+              : ""}
+            {` · ${p.dayEvents.filter((e) => !e.custom).length} events`}
+          </p>
         </div>
         <EventFilters impact={p.impactFilter} currency={p.currencyFilter} currencies={currencies} onImpact={p.onImpactFilter} onCurrency={p.onCurrencyFilter} />
       </div>

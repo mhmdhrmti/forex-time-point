@@ -1,5 +1,5 @@
 import { SESSIONS } from "./data";
-import { DAY_MS, MIN_MS, dayStartMs, fmtHM } from "./time";
+import { DAY_MS, MIN_MS, dayStartMs, fmtHM, zoneOffsetMin } from "./time";
 import { buildEvent, dedupe } from "./events";
 import type { NewsEvent } from "./types";
 
@@ -41,15 +41,21 @@ export function eventsForDay(events: NewsEvent[], dateKey: string, offsetMin: nu
 
 const dayOfWeek = (ms: number) => (Math.floor(ms / DAY_MS) + 4) % 7; // 0 = Sunday (epoch was a Thursday)
 
-/** Forex weekend closure: Friday 22:00 UTC → Sunday 22:00 UTC (standard approximation). */
+/**
+ * Forex weekend closure: Friday 17:00 → Sunday 17:00 New York time (so 22:00 UTC in winter, 21:00 UTC in
+ * summer). Each end uses New York's offset on its own day because the clocks change on Sundays.
+ */
 export function weekendClosures(startMs: number, endMs: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   const firstDay = Math.floor(startMs / DAY_MS) - 3;
   const lastDay = Math.floor(endMs / DAY_MS) + 1;
+  const NY = "America/New_York";
   for (let day = firstDay; day <= lastDay; day++) {
     if (dayOfWeek(day * DAY_MS) !== 5) continue;
-    const from = day * DAY_MS + 22 * 60 * MIN_MS;
-    const to = from + 48 * 60 * MIN_MS;
+    const fri = day * DAY_MS;
+    const sun = fri + 2 * DAY_MS;
+    const from = fri + (17 * 60 - zoneOffsetMin(NY, fri + 12 * 60 * MIN_MS)) * MIN_MS;
+    const to = sun + (17 * 60 - zoneOffsetMin(NY, sun + 20 * 60 * MIN_MS)) * MIN_MS;
     const a = Math.max(from, startMs);
     const b = Math.min(to, endMs);
     if (b > a) out.push([a, b]);

@@ -39,6 +39,10 @@ export interface Session {
   startUtc: number;
   endUtc: number;
   color: string;
+  /** IANA zone and local trading hours; the UTC times above are resolved from these for a given date (daylight saving). */
+  zone?: string;
+  localOpen?: number;
+  localClose?: number;
   /** Currencies whose bank holidays close this session. */
   currencies: string[];
 }

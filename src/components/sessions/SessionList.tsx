@@ -1,9 +1,11 @@
 import Panel from "@/components/ui/Panel";
-import { SESSIONS } from "@/lib/data";
+import type { Session } from "@/lib/types";
 import { fmtHM, isInRange, toLocalMinutes } from "@/lib/time";
 
 interface Props {
   offset: number;
+  /** Sessions resolved for the viewed date. */
+  sessions: Session[];
   /** Current minute of the UTC day, or null before the client clock is ready. */
   nowUtcMin: number | null;
   /** Viewing today (so Open/Closed can be live). */
@@ -18,12 +20,12 @@ interface Props {
 }
 
 /** The four sessions with show/hide toggles and a live Open / Closed state. */
-export default function SessionList({ offset, nowUtcMin, isToday, marketClosed, closedReason, closedSessions, visible, onToggle }: Props) {
+export default function SessionList({ offset, sessions, nowUtcMin, isToday, marketClosed, closedReason, closedSessions, visible, onToggle }: Props) {
   return (
     <section aria-label="Trading sessions">
       <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Sessions</h2>
       <Panel className={`grid gap-px overflow-hidden bg-[var(--line)] sm:grid-cols-2 ${marketClosed ? "opacity-70" : ""}`}>
-        {SESSIONS.map((s) => {
+        {sessions.map((s) => {
           const shown = visible[s.id] !== false;
           const holiday = closedSessions[s.id];
           let label = "—";
@@ -68,7 +70,7 @@ export default function SessionList({ offset, nowUtcMin, isToday, marketClosed, 
       <p className="mt-2 px-1 text-[11px] text-[var(--muted)]">
         {marketClosed
           ? "The market is closed, so sessions, time points and ranges are locked."
-          : "Standard UTC hours; daylight-saving shifts are not applied. Weekend closure is Fri 22:00 – Sun 22:00 UTC."}
+          : "Session hours follow each market's local time and daylight saving. Weekend closure is Fri 17:00 – Sun 17:00 New York time."}
       </p>
     </section>
   );

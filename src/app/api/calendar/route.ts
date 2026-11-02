@@ -52,6 +52,14 @@ async function fromPage(weekKey: string): Promise<NewsEvent[]> {
   return events;
 }
 
+/** A feed that is stale or for another week must not be shown as this week's events. */
+function coversWeek(events: NewsEvent[], weekKey: string) {
+  const start = Date.parse(`${weekKey}T00:00:00Z`) - DAY_MS;
+  const end = start + 9 * DAY_MS;
+  const inside = events.filter((e) => e.atMs >= start && e.atMs < end).length;
+  return inside / events.length > 0.9;
+}
+
 async function load(weekKey: string): Promise<Entry> {
   const thisWeek = weekStartKey(new Date().toISOString().slice(0, 10));
   const nextWeek = addDaysKey(thisWeek, 7);
@@ -60,7 +68,7 @@ async function load(weekKey: string): Promise<Entry> {
     try {
       const events = await fromJson(weekKey === thisWeek ? "ff_calendar_thisweek.json" : "ff_calendar_nextweek.json");
       // The next-week export is only published late in the week; an empty list is not an answer.
-      if (events.length > 0) return { at: Date.now(), events, source: "json" };
+      if (events.length > 0 && coversWeek(events, weekKey)) return { at: Date.now(), events, source: "json" };
     } catch {
       /* fall through to the page */
     }

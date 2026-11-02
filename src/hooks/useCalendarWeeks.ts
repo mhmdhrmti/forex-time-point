@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FeedState } from "@/components/news/FeedNotice";
 import type { NewsEvent } from "@/lib/types";
 
-type WeekState = { events: NewsEvent[]; stale: boolean; error: string | null };
+type WeekState = { events: NewsEvent[]; stale: boolean; error: string | null; fetchedAt?: number; source?: string };
 
 const NONE: NewsEvent[] = [];
 const REFRESH_MS = 30 * 60_000;
@@ -22,12 +22,12 @@ export function useCalendarWeeks(weekKey: string | null) {
     inflight.current.add(key);
     try {
       const res = await fetch(`/api/calendar?week=${key}`, { cache: "no-store" });
-      const data = (await res.json()) as { events?: NewsEvent[]; stale?: boolean; error?: string };
+      const data = (await res.json()) as { events?: NewsEvent[]; stale?: boolean; error?: string; fetchedAt?: number; source?: string };
       if (!res.ok || data.error || !data.events) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setWeeks((prev) => ({ ...prev, [key]: { events: data.events!, stale: Boolean(data.stale), error: null } }));
+      setWeeks((prev) => ({ ...prev, [key]: { events: data.events!, stale: Boolean(data.stale), error: null, fetchedAt: data.fetchedAt, source: data.source } }));
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not load the calendar.";
-      setWeeks((prev) => ({ ...prev, [key]: { events: prev[key]?.events ?? NONE, stale: false, error: message } }));
+      setWeeks((prev) => ({ ...prev, [key]: { ...prev[key], events: prev[key]?.events ?? NONE, stale: Boolean(prev[key]?.events.length), error: prev[key]?.events.length ? null : message } }));
     } finally {
       inflight.current.delete(key);
     }
@@ -49,6 +49,16 @@ export function useCalendarWeeks(weekKey: string | null) {
     return () => window.clearInterval(id);
   }, [weekKey, loadWeek]);
 
+  // Refresh when the tab or installed app comes back to the foreground.
+  useEffect(() => {
+    if (!weekKey) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadWeek(weekKey);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [weekKey, loadWeek]);
+
   const retry = useCallback(() => {
     if (!weekKey) return;
     setWeeks((prev) => {
@@ -68,7 +78,7 @@ export function useCalendarWeeks(weekKey: string | null) {
     ? { status: "loading" }
     : week.error
       ? { status: "error", message: week.error }
-      : { status: "ready", stale: week.stale };
+      : { status: "ready", stale: week.stale, fetchedAt: week.fetchedAt, source: week.source };
 
   return { events, feed, retry };
 }
